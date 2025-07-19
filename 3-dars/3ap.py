@@ -1,39 +1,36 @@
+import wave
 import numpy as np
-from scipy.io.wavfile import read, write
+import scipy.signal
 import os
 
-def moving_average(signal, window_size=10):
-    filtered = np.copy(signal)
-    for i in range(window_size, len(signal)):
-        filtered[i] = np.mean(signal[i - window_size:i])
-    return filtered
+# Kiruvchi fayl nomi
+input_file = 'noisy.wav'
+output_file = 'cleaned_full.wav'
 
-def normalize(signal):
-    return np.int16(signal / np.max(np.abs(signal)) * 32767)
+# WAV faylni o‘qish
+with wave.open(input_file, 'rb') as wav:
+    params = wav.getparams()
+    n_channels, sampwidth, framerate, n_frames = params[:4]
+    frames = wav.readframes(n_frames)
 
-# --- 1. WAV faylni yuklaymiz ---
-input_file = "original.wav"
+# NumPy massivga o‘tkazish
+audio = np.frombuffer(frames, dtype=np.int16)
 
-if not os.path.exists(input_file):
-    print("❌ Xatolik: 'noisy.wav' fayli mavjud emas.", os.path.exists(input_file) )
-    print("Iltimos, shu nomli .wav faylni dasturni yoniga joylashtiring.")
-    exit()
+# Har bir kanalni alohida tozalash (stereo bo‘lsa)
+if n_channels == 2:
+    audio = audio.reshape(-1, 2)
+    cleaned = np.zeros_like(audio)
+    for ch in range(2):
+        b, a = scipy.signal.butter(6, 1000 / (0.5 * framerate), btype='high')
+        cleaned[:, ch] = scipy.signal.filtfilt(b, a, audio[:, ch])
+    cleaned_audio = cleaned.flatten()
+else:
+    b, a = scipy.signal.butter(6, 1000 / (0.5 * framerate), btype='high')
+    cleaned_audio = scipy.signal.filtfilt(b, a, audio)
 
-samplerate, data = read(input_file)
+# Saqlash
+with wave.open(output_file, 'wb') as out_wav:
+    out_wav.setparams(params)
+    out_wav.writeframes(cleaned_audio.astype(np.int16).tobytes())
 
-# Mono yoki stereo tekshiramiz
-if len(data.shape) == 2:
-    print("🎧 Stereo fayl aniqlandi — faqat 1-kanal (chap kanal) ustida ishlanadi.")
-    data = data[:, 0]  # faqat chap kanal
-
-# --- 2. Signalni float formatga o‘tkazamiz ---
-data = data.astype(np.float32)
-
-# --- 3. Filtrlash ---
-cleaned = moving_average(data, window_size=10)
-
-# --- 4. Tozalangan signalni saqlash ---
-write("cleaned_output.wav", samplerate, normalize(cleaned))
-
-print("✅ Tozalash yakunlandi!")
-print("👉 Yangi fayl: cleaned_output.wav")
+print(f"✅ To‘liq tozalangan fayl saqlandi: {output_file}")
